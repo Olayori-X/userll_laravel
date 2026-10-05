@@ -60,6 +60,21 @@ return [
             'report' => false,
         ],
 
+        // Cloudflare R2 (S3-compatible). Used for KYC ID photos only when all four
+        // CLOUDFLARE_R2_* variables are set (see 'kyc_disk' in config/marketplace.php).
+        'r2' => [
+            'driver' => 's3',
+            'key' => env('CLOUDFLARE_R2_ACCESS_KEY_ID'),
+            'secret' => env('CLOUDFLARE_R2_SECRET_ACCESS_KEY'),
+            'region' => 'auto',
+            'bucket' => env('CLOUDFLARE_R2_BUCKET'),
+            'endpoint' => env('CLOUDFLARE_R2_ENDPOINT'),
+            'use_path_style_endpoint' => true,
+            'visibility' => 'private',
+            'throw' => true, // a failed upload must raise an error, never pass silently
+            'report' => false,
+        ],
+
     ],
 
     /*

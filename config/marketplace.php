@@ -19,6 +19,8 @@ return [
     // A checkout that stays unpaid this long is closed and its orders cancelled.
     'checkout_expiry_minutes' => (int) env('MARKETPLACE_CHECKOUT_EXPIRY_MINUTES', 60),
 
+    'payout_account_hold_hours' => (int) env('MARKETPLACE_PAYOUT_ACCOUNT_HOLD_HOURS', 24),
+
     // ---- Catalog ----
     // Filesystem disk for listing photos: 'public' locally, 's3' in production.
     'image_disk' => env('MARKETPLACE_IMAGE_DISK', 'public'),
@@ -28,6 +30,16 @@ return [
     'min_price_kobo' => (int) env('MARKETPLACE_MIN_PRICE_KOBO', 10_000),
     'max_price_kobo' => (int) env('MARKETPLACE_MAX_PRICE_KOBO', 10_000_000_000),
     'max_delivery_fee_kobo' => (int) env('MARKETPLACE_MAX_DELIVERY_FEE_KOBO', 5_000_000), // ₦50,000
+
+    // ---- KYC (seller identity documents) ----
+    // ID photos are private. They go to Cloudflare R2 only when ALL four Cloudflare variables are
+    // set in .env; otherwise they stay on the local private disk (storage/app/private).
+    // Each submission remembers the disk it was saved to, so switching later never loses old photos.
+    'kyc_disk' => (env('CLOUDFLARE_R2_ACCESS_KEY_ID')
+        && env('CLOUDFLARE_R2_SECRET_ACCESS_KEY')
+        && env('CLOUDFLARE_R2_BUCKET')
+        && env('CLOUDFLARE_R2_ENDPOINT')) ? 'r2' : 'local',
+    'kyc_photo_max_kb' => 5120, // 5 MB
 
     // ---- Payments ----
     'paystack' => [

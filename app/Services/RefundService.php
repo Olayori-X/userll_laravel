@@ -133,8 +133,8 @@ class RefundService
         }
     }
 
-    /** A refund.* webhook from Paystack: keep our refund row in step with what Paystack reports. */
-    public function applyGatewayEvent(string $event, string $transactionReference, int $amount): void
+        /** A refund.* webhook from Paystack: keep our refund row in step with what Paystack reports. */
+    public function applyGatewayEvent(string $event, string $transactionReference, int $amount, ?string $refundReference = null): void
     {
         $status = match ($event) {
             'refund.processing' => RefundStatus::Processing,
@@ -148,21 +148,48 @@ class RefundService
             return;
         }
 
-        // Paystack refund webhooks carry the payment's reference and the amount, not our refund id.
-        $refund = Refund::whereHas('payment', fn ($q) => $q->where('paystack_reference', $transactionReference))
-            ->where('amount', $amount)
-            ->where('status', '!=', RefundStatus::Processed->value)
-            ->orderBy('id')
-            ->first();
+        $refundReference = ($refundReference !== null && $refundReference !== '') ? $refundReference : null;
+
+        // Paystack refund webhooks carry the payment's reference, the amount and (usually) their own
+        // refund reference, but not our refund id. So we bind each refund to that reference the first
+        // time we see it, and match on it from then on.
+        $forPayment = fn () => Refund::whereHas('payment', fn ($q) => $q->where('paystack_reference', $transactionReference));
+
+        $refund = null;
+
+        if ($refundReference !== null) {
+            $refund = $forPayment()->where('paystack_refund_reference', $refundReference)->first();
+        }
 
         if (! $refund) {
-            Log::warning('Refund webhook did not match a refund', ['event' => $event, 'reference' => $transactionReference]);
+            // First event for this refund: pick a refund of the same amount that is not finished and
+            // is not already at this status, so two equal-amount refunds on one payment each get their own event.
+            $refund = $forPayment()
+                ->where('amount', $amount)
+                ->when($refundReference !== null, fn ($q) => $q->whereNull('paystack_refund_reference'))
+                ->whereNotIn('status', [RefundStatus::Processed->value, $status->value])
+                ->orderBy('id')
+                ->first();
+        }
 
+        if (! $refund) {
+            Log::warning('Refund webhook did not match a refund', [
+                'event' => $event,
+                'reference' => $transactionReference,
+                'refund_reference' => $refundReference,
+            ]);
+
+            return;
+        }
+
+        // Events can arrive out of order: a finished refund never goes backwards.
+        if ($refund->status === RefundStatus::Processed || $refund->status === $status) {
             return;
         }
 
         $refund->update([
             'status' => $status,
+            'paystack_refund_reference' => $refundReference ?? $refund->paystack_refund_reference,
             'failure_note' => match ($status) {
                 RefundStatus::Failed => 'Paystack could not process this refund; the amount went back to your Paystack balance. Retry it or pay the buyer another way.',
                 RefundStatus::NeedsAttention => 'Paystack needs the buyer\'s bank details to finish this refund. Handle it in the Paystack dashboard.',

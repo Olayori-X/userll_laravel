@@ -20,6 +20,9 @@ use App\Http\Controllers\Api\V1\Seller\SellerOrderActionController;
 use App\Http\Controllers\Api\V1\Seller\SellerOrderController;
 use App\Http\Controllers\Api\V1\Seller\SellerProfileController;
 use App\Http\Controllers\Api\V1\SellerController;
+use App\Http\Controllers\Api\V1\Seller\PayoutAccountController;
+use App\Http\Controllers\Api\V1\Admin\AdminKycController;
+use App\Http\Controllers\Api\V1\Seller\KycController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -85,6 +88,13 @@ Route::prefix('v1')->group(function () {
             Route::get('profile', [SellerProfileController::class, 'show']);
             Route::patch('profile', [SellerProfileController::class, 'update']);
 
+            Route::get('banks', [PayoutAccountController::class, 'banks']);
+            Route::get('payout-account', [PayoutAccountController::class, 'show']);
+            Route::put('payout-account', [PayoutAccountController::class, 'save'])->middleware('throttle:10,1');
+
+            Route::get('kyc', [KycController::class, 'show']);
+            Route::post('kyc', [KycController::class, 'store'])->middleware('throttle:5,1');
+
             Route::get('listings', [SellerListingController::class, 'index']);
             Route::post('listings', [SellerListingController::class, 'store']);
             Route::get('listings/{listing}', [SellerListingController::class, 'show'])->whereNumber('listing');
@@ -113,6 +123,12 @@ Route::prefix('v1')->group(function () {
 
         Route::get('disputes', [AdminDisputeController::class, 'index']);
         Route::post('disputes/{dispute}/resolve', [AdminDisputeController::class, 'resolve'])->whereNumber('dispute');
+
+        Route::get('kyc', [AdminKycController::class, 'index']);
+        Route::get('kyc/{submission}', [AdminKycController::class, 'show'])->whereNumber('submission');
+        Route::get('kyc/{submission}/photo', [AdminKycController::class, 'photo'])->whereNumber('submission');
+        Route::post('kyc/{submission}/approve', [AdminKycController::class, 'approve'])->whereNumber('submission');
+        Route::post('kyc/{submission}/reject', [AdminKycController::class, 'reject'])->whereNumber('submission');
     });
 
     // Step 5+ routes go here (payouts, KYC, reviews, chat). Use:

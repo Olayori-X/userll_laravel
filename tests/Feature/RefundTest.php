@@ -12,6 +12,7 @@ use App\Models\Refund;
 use App\Models\User;
 use App\Models\WebhookEvent;
 use App\Services\RefundService;
+use App\Services\LedgerService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\ValidationException;
@@ -57,14 +58,14 @@ class RefundTest extends TestCase
         return $order->refunds()->with('payment')->firstOrFail();
     }
 
-    private function sendRefundEvent(string $event, string $paymentReference, int $amount)
+        private function sendRefundEvent(string $event, string $paymentReference, int $amount, ?string $refundReference = null)
     {
         $body = json_encode([
             'event' => $event,
             'data' => [
                 'status' => 'processed',
                 'transaction_reference' => $paymentReference,
-                'refund_reference' => null,
+                'refund_reference' => $refundReference,
                 'amount' => (string) $amount, // Paystack sends the amount as text here
                 'currency' => 'NGN',
                 'processor' => 'instant-transfer',
@@ -220,5 +221,52 @@ class RefundTest extends TestCase
 
         $this->assertSame(1, WebhookEvent::where('event_type', 'refund.processed')->count());
         $this->assertStringNotContainsString('drew@example.com', json_encode(WebhookEvent::firstOrFail()->payload));
+    }
+
+        public function test_two_equal_refunds_on_one_payment_each_get_their_own_events(): void
+    {
+        $buyer = User::factory()->create();
+        $seller = $this->makeSeller();
+
+        // Two orders from one checkout and one payment, with the same total.
+        $first = $this->makeEscrowedOrder($buyer, $seller, 10_000_000);
+        $second = $this->makePaidOrder($buyer, $seller, 10_000_000, ['checkout_id' => $first->checkout_id]);
+        app(LedgerService::class)->holdEscrow($second);
+
+        Payment::where('checkout_id', $first->checkout_id)->update(['amount' => 20_000_000]);
+        Checkout::whereKey($first->checkout_id)->update(['total' => 20_000_000]);
+
+        $refunds = app(RefundService::class);
+        $refundA = $refunds->refundOrder($first, 'test', restock: false);
+        $refundB = $refunds->refundOrder($second, 'test', restock: false);
+        $reference = Payment::where('checkout_id', $first->checkout_id)->value('paystack_reference');
+
+        // Each refund's first event binds it to Paystack's own refund reference.
+        $this->sendRefundEvent('refund.processing', $reference, 10_000_000, 'RF-ONE')->assertOk();
+        $this->sendRefundEvent('refund.processing', $reference, 10_000_000, 'RF-TWO')->assertOk();
+
+        $this->assertSame(2, WebhookEvent::where('event_type', 'refund.processing')->count()); // not collapsed into one
+        $this->assertSame(RefundStatus::Processing, $refundA->fresh()->status);
+        $this->assertSame(RefundStatus::Processing, $refundB->fresh()->status);
+        $this->assertSame('RF-ONE', $refundA->fresh()->paystack_refund_reference);
+        $this->assertSame('RF-TWO', $refundB->fresh()->paystack_refund_reference);
+
+        // Later events find the right refund by reference, whatever the order they arrive in.
+        $this->sendRefundEvent('refund.processed', $reference, 10_000_000, 'RF-TWO')->assertOk();
+        $this->sendRefundEvent('refund.failed', $reference, 10_000_000, 'RF-ONE')->assertOk();
+
+        $this->assertSame(RefundStatus::Failed, $refundA->fresh()->status);
+        $this->assertSame(RefundStatus::Processed, $refundB->fresh()->status);
+    }
+
+    public function test_a_late_event_never_moves_a_finished_refund_backwards(): void
+    {
+        $refund = $this->cancelledOrderRefund(User::factory()->create(), $this->makeSeller());
+        $reference = $refund->payment->paystack_reference;
+
+        $this->sendRefundEvent('refund.processed', $reference, 10_000_000, 'RF-LATE')->assertOk();
+        $this->sendRefundEvent('refund.processing', $reference, 10_000_000, 'RF-LATE')->assertOk(); // arrives late
+
+        $this->assertSame(RefundStatus::Processed, $refund->fresh()->status);
     }
 }

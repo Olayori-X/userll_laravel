@@ -37,7 +37,17 @@ class PaystackWebhookController extends Controller
         // Payment events carry "reference"; refund events carry the payment's "transaction_reference".
         $reference = (string) ($data['reference'] ?? $data['transaction_reference'] ?? '');
         $isRefund = str_starts_with($event, 'refund.');
-        $eventKey = $event.':'.$reference.($isRefund ? ':'.($data['amount'] ?? '') : '');
+        $refundReference = (string) ($data['refund_reference'] ?? '');
+
+        // For refunds the key also holds the amount and Paystack's refund reference, so two refunds of
+        // the same amount on one payment are not mistaken for one event delivered twice.
+        $eventKey = $event.':'.$reference;
+        if ($isRefund) {
+            $eventKey .= ':'.($data['amount'] ?? '');
+            if ($refundReference !== '') {
+                $eventKey .= ':'.$refundReference;
+            }
+        }
 
         // Remember every event once (only safe fields: no card or customer details).
         $record = WebhookEvent::firstOrCreate(
@@ -56,7 +66,7 @@ class PaystackWebhookController extends Controller
             }
 
             if ($isRefund) {
-                $refunds->applyGatewayEvent($event, $reference, (int) ($data['amount'] ?? 0));
+                $refunds->applyGatewayEvent($event, $reference, (int) ($data['amount'] ?? 0), $refundReference ?: null);
             }
 
             $record->update(['processed_at' => now()]);

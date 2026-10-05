@@ -2,12 +2,14 @@
 
 namespace App\Services;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
-/** Thin wrapper around the two Paystack calls we need for collecting money. Amounts are kobo. */
+/** Thin wrapper around the Paystack calls we need: collecting money, refunds, banks and payout recipients. Amounts are kobo. */
 class PaystackClient
 {
     /**
@@ -55,6 +57,102 @@ class PaystackClient
         return $this->data($response, 'refund');
     }
 
+    // ------------------------------------------------------------------ banks and payout recipients
+
+    /**
+     * Every active Nigerian bank Paystack can pay to, sorted by name.
+     *
+     * @return list<array{name: string, code: string}>
+     */
+    public function banks(): array
+    {
+        $banks = [];
+        $next = null;
+
+        // Paystack pages this list with a cursor. The loop limit is a safety net, not an expected size.
+        for ($page = 0; $page < 10; $page++) {
+            $query = ['country' => 'nigeria', 'currency' => 'NGN', 'perPage' => 100, 'use_cursor' => 'true'];
+
+            if ($next) {
+                $query['next'] = $next;
+            }
+
+            $response = $this->readOnly()->get('/bank', $query);
+
+            foreach ($this->data($response, 'banks') as $bank) {
+                if (($bank['active'] ?? true) === false || empty($bank['code']) || empty($bank['name'])) {
+                    continue;
+                }
+
+                $banks[(string) $bank['code']] = ['name' => (string) $bank['name'], 'code' => (string) $bank['code']];
+            }
+
+            $next = $response->json('meta.next');
+
+            if (! $next) {
+                break;
+            }
+        }
+
+        $banks = array_values($banks);
+        usort($banks, fn (array $a, array $b) => strcasecmp($a['name'], $b['name']));
+
+        return $banks;
+    }
+
+    /**
+     * Look up the real account name for a bank account.
+     * Returns null when the number does not exist at that bank (a user mistake).
+     * Throws PaystackException when Paystack itself is unreachable or failing.
+     *
+     * @return array{account_number: string, account_name: string}|null
+     */
+    public function resolveAccount(string $accountNumber, string $bankCode): ?array
+    {
+        try {
+            $response = $this->readOnly()->get('/bank/resolve', [
+                'account_number' => $accountNumber,
+                'bank_code' => $bankCode,
+            ]);
+        } catch (ConnectionException) {
+            throw new PaystackException('Paystack resolve account failed.');
+        }
+
+        // Paystack answers 422 (sometimes 404) when the number does not belong to that bank.
+        if (in_array($response->status(), [404, 422], true)) {
+            return null;
+        }
+
+        $data = $this->data($response, 'resolve account');
+
+        return isset($data['account_name']) ? $data : null;
+    }
+
+    /**
+     * Register a bank account with Paystack as someone we can send money to.
+     * Returns Paystack's data; the part we keep is recipient_code. Not retried automatically.
+     */
+    public function createRecipient(string $name, string $accountNumber, string $bankCode): array
+    {
+        $response = $this->http()->post('/transferrecipient', [
+            'type' => 'nuban',
+            'name' => $name,
+            'account_number' => $accountNumber,
+            'bank_code' => $bankCode,
+            'currency' => 'NGN',
+        ]);
+
+        $data = $this->data($response, 'create recipient');
+
+        if (empty($data['recipient_code'])) {
+            throw new PaystackException('Paystack create recipient failed.');
+        }
+
+        return $data;
+    }
+
+    // ------------------------------------------------------------------ plumbing
+
     private function http(): PendingRequest
     {
         $key = config('marketplace.paystack.secret_key');
@@ -67,6 +165,18 @@ class PaystackClient
             ->withToken($key)
             ->acceptJson()
             ->timeout(15);
+    }
+
+    /** For calls that only read: retried on a connection failure or a Paystack 5xx, never on a 4xx answer. */
+    private function readOnly(): PendingRequest
+    {
+        return $this->http()->retry(
+            2,
+            300,
+            fn ($exception) => $exception instanceof ConnectionException
+                || ($exception instanceof RequestException && $exception->response->serverError()),
+            throw: false,
+        );
     }
 
     private function data(Response $response, string $action): array
