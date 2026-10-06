@@ -25,6 +25,7 @@ use App\Http\Controllers\Api\V1\Admin\AdminKycController;
 use App\Http\Controllers\Api\V1\Seller\KycController;
 use App\Http\Controllers\Api\V1\Admin\AdminPayoutController;
 use App\Http\Controllers\Api\V1\Seller\SellerPayoutController;
+use App\Http\Controllers\Api\V1\NotificationController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -80,6 +81,14 @@ Route::prefix('v1')->group(function () {
         Route::post('orders/{orderNumber}/confirm', [OrderActionController::class, 'confirm']);
         Route::post('orders/{orderNumber}/cancel', [OrderActionController::class, 'cancel']);
         Route::post('orders/{orderNumber}/dispute', [OrderActionController::class, 'dispute']);
+    });
+
+    // ---------- Inbox (any signed-in user with a verified email) ----------
+    Route::middleware(['auth:sanctum', 'verified'])->prefix('notifications')->group(function () {
+        Route::get('/', [NotificationController::class, 'index']);
+        Route::get('unread-count', [NotificationController::class, 'unreadCount']);
+        Route::post('read-all', [NotificationController::class, 'markAllRead']);
+        Route::post('{notification}/read', [NotificationController::class, 'markRead']);
     });
 
     // ---------- Seller area (verified email required) ----------

@@ -12,10 +12,13 @@ use App\Models\Refund;
 use App\Models\User;
 use App\Models\Checkout;
 use App\Models\Payment;
+use App\Models\Review;
 use App\Notifications\UserNotification;
 use App\Support\Money;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Throwable;
 
 /**
@@ -233,19 +236,50 @@ class Notifier
         );
     }
 
+    // ------------------------------------------------------------------ reviews
+
+    public function reviewReceived(Review $review): void
+    {
+        $comment = $review->comment ? ' "'.Str::limit($review->comment, 80).'"' : '';
+
+        $this->send(
+            $this->user($review->seller_id), 'review.received',
+            'New review',
+            "A buyer gave you {$review->rating} out of 5.{$comment}",
+            '/seller/reviews', ['review_id' => $review->id, 'order_id' => $review->order_id],
+        );
+    }
+
+    public function reviewReplied(Review $review): void
+    {
+        $order = Order::find($review->order_id);
+
+        $this->send(
+            $this->user($review->reviewer_id), 'review.replied',
+            'The seller replied to your review',
+            'The seller replied: "'.Str::limit((string) $review->seller_reply, 100).'"',
+            $order ? $this->buyerOrderLink($order) : null, ['review_id' => $review->id],
+        );
+    }
+
     // ------------------------------------------------------------------ internals
 
-    private function send(?User $user, string $kind, string $title, string $body, ?string $link = null, array $meta = [], bool $email = false): void
+        private function send(?User $user, string $kind, string $title, string $body, ?string $link = null, array $meta = [], bool $email = false): void
     {
         if (! $user) {
             return;
         }
 
-        try {
-            $user->notify(new UserNotification($kind, $title, $body, $link, $meta, $email));
-        } catch (Throwable $e) {
-            Log::error('Could not send a notification', ['kind' => $kind, 'user_id' => $user->id, 'error' => $e->getMessage()]);
-        }
+        // If a database transaction is open, wait until it commits (and drop the message if it rolls back),
+        // so nobody is told about something that did not happen. The try/catch sits INSIDE the waiting
+        // code on purpose: a failure at commit time must never reach the money flow that triggered it.
+        DB::afterCommit(function () use ($user, $kind, $title, $body, $link, $meta, $email) {
+            try {
+                $user->notify(new UserNotification($kind, $title, $body, $link, $meta, $email));
+            } catch (Throwable $e) {
+                Log::error('Could not send a notification', ['kind' => $kind, 'user_id' => $user->id, 'error' => $e->getMessage()]);
+            }
+        });
     }
 
     private function user(int $id): ?User

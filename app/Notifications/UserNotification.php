@@ -15,22 +15,19 @@ class UserNotification extends Notification implements ShouldQueue
 {
     use Queueable;
 
-    // Never tell someone about something whose database transaction was rolled back.
-    public bool $afterCommit = true;
-
     /**
      * @param  string  $kind   machine name the frontend can switch on, e.g. "order.paid"
      * @param  string|null  $link   a frontend path, e.g. "/orders/ORD-123"
      * @param  array<string, mixed>  $meta  ids the frontend may need (order id, payout id...)
      */
-    public function __construct(
+        public function __construct(
         public string $kind,
         public string $title,
         public string $body,
         public ?string $link = null,
         public array $meta = [],
         public bool $email = false,
-    ) {
+    ) {        
     }
 
     public function via(object $notifiable): array
