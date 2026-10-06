@@ -151,6 +151,90 @@ class PaystackClient
         return $data;
     }
 
+        // ------------------------------------------------------------------ transfers (payouts)
+
+    /**
+     * Ask Paystack to send money from our balance to a registered recipient. The reference is ours and
+     * unique, so Paystack refuses to send the same payout twice.
+     *
+     * Returns ['accepted' => bool, 'status' => string, 'transfer_code' => ?string, 'message' => string].
+     *   - accepted = true:  Paystack took it. 'status' is Paystack's word: success, pending or otp.
+     *   - accepted = false: Paystack looked at it and said no (not enough balance, bad recipient, transfers
+     *                       not enabled...). No transfer was created, unless it was a duplicate reference.
+     * Throws PaystackException when we cannot tell what happened (timeout, Paystack error).
+     * Never retried automatically: whoever calls this checks the reference with verifyTransfer() first.
+     */
+    public function initiateTransfer(int $amountKobo, string $recipientCode, string $reference, string $reason): array
+    {
+        try {
+            $response = $this->http()->post('/transfer', [
+                'source' => 'balance',
+                'amount' => $amountKobo,
+                'currency' => 'NGN',
+                'recipient' => $recipientCode,
+                'reference' => $reference,
+                'reason' => $reason,
+            ]);
+        } catch (ConnectionException) {
+            throw new PaystackException('Paystack initiate transfer failed.'); // we do not know whether it arrived
+        }
+
+        if ($response->successful() && $response->json('status') === true) {
+            $data = $response->json('data') ?? [];
+
+            return [
+                'accepted' => true,
+                'status' => (string) ($data['status'] ?? ''),
+                'transfer_code' => $data['transfer_code'] ?? null,
+                'message' => (string) $response->json('message'),
+            ];
+        }
+
+        // A 4xx answer means Paystack read the request and refused it. (429, too many requests, is
+        // "try again later", not a refusal, so it falls through to the unknown case below.)
+        if ($response->clientError() && $response->status() !== 429) {
+            Log::error('Paystack refused a transfer', [
+                'reference' => $reference,
+                'http_status' => $response->status(),
+                'message' => $response->json('message'),
+            ]);
+
+            return [
+                'accepted' => false,
+                'status' => 'rejected',
+                'transfer_code' => null,
+                'message' => (string) $response->json('message'),
+            ];
+        }
+
+        Log::error('Paystack initiate transfer failed', [
+            'reference' => $reference,
+            'http_status' => $response->status(),
+            'message' => $response->json('message'),
+        ]);
+
+        throw new PaystackException('Paystack initiate transfer failed.');
+    }
+
+    /**
+     * What happened to a transfer, looked up by our reference. Returns null when Paystack has never
+     * heard of that reference. Safe to retry: it only reads.
+     */
+    public function verifyTransfer(string $reference): ?array
+    {
+        try {
+            $response = $this->readOnly()->get('/transfer/verify/'.rawurlencode($reference));
+        } catch (ConnectionException) {
+            throw new PaystackException('Paystack verify transfer failed.');
+        }
+
+        if ($response->status() === 404) {
+            return null;
+        }
+
+        return $this->data($response, 'verify transfer');
+    }
+
     // ------------------------------------------------------------------ plumbing
 
     private function http(): PendingRequest

@@ -12,14 +12,14 @@ use Throwable;
 
 class OrderFulfilmentService
 {
-    public function __construct(private LedgerService $ledger, private RefundService $refunds)
+    public function __construct(private LedgerService $ledger, private RefundService $refunds, private Notifier $notifier)
     {
     }
 
-    /** Seller hands the goods over. Starts the clock after which the money is released automatically. */
+        /** Seller hands the goods over. Starts the clock after which the money is released automatically. */
     public function ship(Order $order, string $trackingInfo): Order
     {
-        return DB::transaction(function () use ($order, $trackingInfo) {
+        $order = DB::transaction(function () use ($order, $trackingInfo) {
             $order = $this->lock($order);
             $this->requireStatus($order, [OrderStatus::Paid], 'shipped');
 
@@ -33,15 +33,21 @@ class OrderFulfilmentService
 
             return $order;
         });
+
+        $this->notifier->orderShipped($order);
+
+        return $order;
     }
 
-    /**
+        /**
      * The order is done: the buyer confirmed receipt, the auto-release timer ran out, or an admin
      * ruled for the seller. Moves the seller's money from escrow to available. Safe to call twice.
      */
     public function complete(Order $order, bool $allowDisputed = false): Order
     {
-        return DB::transaction(function () use ($order, $allowDisputed) {
+        $completedNow = false;
+
+        $order = DB::transaction(function () use ($order, $allowDisputed, &$completedNow) {
             $order = $this->lock($order);
 
             if ($order->status === OrderStatus::Completed) {
@@ -68,9 +74,16 @@ class OrderFulfilmentService
 
             $this->ledger->releaseEscrow($order);
             $order->update(['status' => OrderStatus::Completed, 'released_at' => now()]);
+            $completedNow = true;
 
             return $order;
         });
+
+        if ($completedNow) {
+            $this->notifier->orderCompleted($order);
+        }
+
+        return $order;
     }
 
     /** Buyer or seller backs out before the goods were shipped: full refund, stock goes back on sale. */

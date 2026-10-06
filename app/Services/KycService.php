@@ -18,6 +18,10 @@ use Throwable;
 
 class KycService
 {
+
+    public function __construct(private Notifier $notifier)
+    {
+    }
     // ------------------------------------------------------------------ seller side
 
     /**
@@ -38,7 +42,7 @@ class KycService
         }
 
         try {
-            return DB::transaction(function () use ($seller, $legalName, $idType, $disk, $path) {
+            $submission = DB::transaction(function () use ($seller, $legalName, $idType, $disk, $path) {
                 // Lock the profile so two quick submissions cannot both slip through.
                 $profile = SellerProfile::whereKey($seller->sellerProfile->id)->lockForUpdate()->firstOrFail();
                 $this->assertCanSubmit($profile);
@@ -61,13 +65,17 @@ class KycService
             Storage::disk($disk)->delete($path); // no orphan photo if the submission was refused or failed
             throw $e;
         }
+
+        $this->notifier->kycSubmitted($submission); // the admins
+
+        return $submission;
     }
 
     // ------------------------------------------------------------------ admin side
 
     public function approve(KycSubmission $submission, User $admin): KycSubmission
     {
-        return DB::transaction(function () use ($submission, $admin) {
+        $approved = DB::transaction(function () use ($submission, $admin) {
             [$profile, $locked] = $this->lockForReview($submission);
 
             $locked->update([
@@ -81,11 +89,15 @@ class KycService
 
             return $locked;
         });
+
+        $this->notifier->kycApproved($approved);
+
+        return $approved;
     }
 
     public function reject(KycSubmission $submission, User $admin, string $reason): KycSubmission
     {
-        return DB::transaction(function () use ($submission, $admin, $reason) {
+        $rejected = DB::transaction(function () use ($submission, $admin, $reason) {
             [$profile, $locked] = $this->lockForReview($submission);
 
             $locked->update([
@@ -99,6 +111,10 @@ class KycService
 
             return $locked;
         });
+
+        $this->notifier->kycRejected($rejected);
+
+        return $rejected;
     }
 
     /**

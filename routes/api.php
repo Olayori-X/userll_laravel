@@ -23,6 +23,8 @@ use App\Http\Controllers\Api\V1\SellerController;
 use App\Http\Controllers\Api\V1\Seller\PayoutAccountController;
 use App\Http\Controllers\Api\V1\Admin\AdminKycController;
 use App\Http\Controllers\Api\V1\Seller\KycController;
+use App\Http\Controllers\Api\V1\Admin\AdminPayoutController;
+use App\Http\Controllers\Api\V1\Seller\SellerPayoutController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -95,6 +97,11 @@ Route::prefix('v1')->group(function () {
             Route::get('kyc', [KycController::class, 'show']);
             Route::post('kyc', [KycController::class, 'store'])->middleware('throttle:5,1');
 
+            Route::get('wallet', [SellerPayoutController::class, 'summary']);
+            Route::get('payouts/quote', [SellerPayoutController::class, 'quote']);
+            Route::get('payouts', [SellerPayoutController::class, 'index']);
+            Route::post('payouts', [SellerPayoutController::class, 'store'])->middleware('throttle:5,1');
+
             Route::get('listings', [SellerListingController::class, 'index']);
             Route::post('listings', [SellerListingController::class, 'store']);
             Route::get('listings/{listing}', [SellerListingController::class, 'show'])->whereNumber('listing');
@@ -129,6 +136,9 @@ Route::prefix('v1')->group(function () {
         Route::get('kyc/{submission}/photo', [AdminKycController::class, 'photo'])->whereNumber('submission');
         Route::post('kyc/{submission}/approve', [AdminKycController::class, 'approve'])->whereNumber('submission');
         Route::post('kyc/{submission}/reject', [AdminKycController::class, 'reject'])->whereNumber('submission');
+
+        Route::get('payouts', [AdminPayoutController::class, 'index']);
+        Route::get('payouts/{payout}', [AdminPayoutController::class, 'show'])->whereNumber('payout');
     });
 
     // Step 5+ routes go here (payouts, KYC, reviews, chat). Use:

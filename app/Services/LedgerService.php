@@ -90,6 +90,44 @@ class LedgerService
         }
     }
 
+        /**
+     * A seller asks to withdraw: the amount leaves their available balance at once, so the same
+     * money cannot be withdrawn twice. It comes back only through returnPayout().
+     */
+    public function reservePayout(Payout $payout): LedgerEntry
+    {
+        return $this->post(
+            $this->walletForSeller($payout->seller_id),
+            LedgerType::Payout, LedgerDirection::Debit, LedgerBucket::Available,
+            $payout->amount, null, $payout, ['part' => 'reserved'],
+        );
+    }
+
+    /**
+     * The payout failed or was reversed: the full amount goes back to the seller's available balance.
+     * Safe to call twice for the same payout; the second call does nothing and returns null.
+     */
+    public function returnPayout(Payout $payout): ?LedgerEntry
+    {
+        return DB::transaction(function () use ($payout) {
+            $wallet = Wallet::whereKey($this->walletForSeller($payout->seller_id)->id)->lockForUpdate()->firstOrFail();
+
+            $alreadyReturned = LedgerEntry::where('payout_id', $payout->id)
+                ->where('type', LedgerType::PayoutReturn->value)
+                ->exists();
+
+            if ($alreadyReturned) {
+                return null;
+            }
+
+            return $this->post(
+                $wallet,
+                LedgerType::PayoutReturn, LedgerDirection::Credit, LedgerBucket::Available,
+                $payout->amount, null, $payout, ['part' => 'returned', 'status' => $payout->status->value],
+            );
+        });
+    }
+
     public function post(
         Wallet $wallet,
         LedgerType $type,

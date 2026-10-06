@@ -45,7 +45,7 @@ enum PayoutStatus: string
             'success' => self::Paid,
             'failed' => self::Failed,
             'reversed' => self::Reversed,
-            'pending', 'processing', 'received', 'queued' => self::Processing,
+            'pending', 'processing', 'received', 'queued', 'otp' => self::Processing,
             default => null,
         };
     }

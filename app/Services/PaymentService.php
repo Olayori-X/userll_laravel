@@ -31,7 +31,7 @@ class PaymentService
     /** The only Paystack fields we ever store. No card or customer details. */
     public const SAFE_FIELDS = ['id', 'status', 'reference', 'transaction_reference', 'refund_reference', 'amount', 'currency', 'paid_at', 'channel', 'gateway_response'];
 
-    public function __construct(private PaystackClient $paystack, private LedgerService $ledger)
+    public function __construct(private PaystackClient $paystack, private LedgerService $ledger, private Notifier $notifier)
     {
     }
 
@@ -129,8 +129,9 @@ class PaymentService
     public function confirm(Payment $payment, array $gateway): string
     {
         $gateway = Arr::only($gateway, self::SAFE_FIELDS);
+        $paidOrders = [];
 
-        return DB::transaction(function () use ($payment, $gateway) {
+        $result = DB::transaction(function () use ($payment, $gateway, &$paidOrders) {
             // Lock order is always payment -> checkout -> listings (by id) -> wallets, so two
             // simultaneous confirmations cannot deadlock each other.
             $payment = Payment::whereKey($payment->id)->lockForUpdate()->firstOrFail();
@@ -201,6 +202,7 @@ class PaymentService
                 $this->ledger->holdEscrow($order);
             }
 
+            $paidOrders = $orders->all();
             $checkout->update(['status' => CheckoutStatus::Paid]);
 
             $payment->update([
@@ -216,6 +218,15 @@ class PaymentService
 
             return self::PAID;
         });
+
+        // Only now, after the transaction has committed, tell people about the new orders.
+        if ($result === self::PAID) {
+            foreach ($paidOrders as $order) {
+                $this->notifier->orderPaid($order);
+            }
+        }
+
+        return $result;
     }
 
     // ------------------------------------------------------------------ helpers

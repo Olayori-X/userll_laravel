@@ -18,7 +18,7 @@ use Throwable;
 
 class RefundService
 {
-    public function __construct(private LedgerService $ledger)
+    public function __construct(private LedgerService $ledger, private Notifier $notifier)
     {
     }
 
@@ -28,6 +28,7 @@ class RefundService
         $refund = DB::transaction(fn () => $this->createOrderRefund($order, $reason, $restock));
 
         $this->dispatch($refund);
+        $this->notifier->orderCancelled($order); // only reached when the refund was really created
 
         return $refund;
     }
@@ -98,6 +99,7 @@ class RefundService
         });
 
         $this->dispatch($refund);
+        $this->notifier->paymentRefundStarted($refund); // the buyer paid but got no order: tell them why and what happens next
 
         return $refund;
     }
@@ -196,6 +198,11 @@ class RefundService
                 default => null,
             },
         ]);
+
+        // Paystack finished the refund: tell the buyer. The early return above means this runs once per refund.
+        if ($status === RefundStatus::Processed) {
+            $this->notifier->refundProcessed($refund);
+        }
     }
 
     /** Goods that were reserved at payment go back on sale. */

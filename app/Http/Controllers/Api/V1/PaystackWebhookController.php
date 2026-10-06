@@ -4,20 +4,22 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Payment;
+use App\Models\Payout;
 use App\Models\WebhookEvent;
 use App\Services\PaymentService;
+use App\Services\PayoutService;
 use App\Services\RefundService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 
 /**
- * Paystack calls this when something happens to a payment. Anyone on the internet can call it,
- * so the signature is checked first, and money is only credited after we ask Paystack to confirm.
+ * Paystack calls this when something happens to a payment, refund or transfer. Anyone on the internet
+ * can call it, so the signature is checked first, and money only moves after we ask Paystack to confirm.
  */
 class PaystackWebhookController extends Controller
 {
-    public function handle(Request $request, PaymentService $payments, RefundService $refunds): JsonResponse
+    public function handle(Request $request, PaymentService $payments, RefundService $refunds, PayoutService $payouts): JsonResponse
     {
         $secret = config('marketplace.paystack.secret_key');
         $body = $request->getContent(); // the raw body: the signature is computed over exactly these bytes
@@ -34,9 +36,10 @@ class PaystackWebhookController extends Controller
 
         $event = (string) $payload['event'];
         $data = is_array($payload['data'] ?? null) ? $payload['data'] : [];
-        // Payment events carry "reference"; refund events carry the payment's "transaction_reference".
+        // Payment and transfer events carry "reference"; refund events carry the payment's "transaction_reference".
         $reference = (string) ($data['reference'] ?? $data['transaction_reference'] ?? '');
         $isRefund = str_starts_with($event, 'refund.');
+        $isTransfer = str_starts_with($event, 'transfer.');
         $refundReference = (string) ($data['refund_reference'] ?? '');
 
         // For refunds the key also holds the amount and Paystack's refund reference, so two refunds of
@@ -67,6 +70,15 @@ class PaystackWebhookController extends Controller
 
             if ($isRefund) {
                 $refunds->applyGatewayEvent($event, $reference, (int) ($data['amount'] ?? 0), $refundReference ?: null);
+            }
+
+            // A transfer event is only a prompt: PayoutService asks Paystack what really happened.
+            if ($isTransfer && in_array($event, ['transfer.success', 'transfer.failed', 'transfer.reversed'], true)) {
+                $payout = Payout::where('paystack_reference', $reference)->first();
+
+                if ($payout) {
+                    $payouts->refresh($payout);
+                }
             }
 
             $record->update(['processed_at' => now()]);

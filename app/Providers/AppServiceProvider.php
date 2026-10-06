@@ -39,6 +39,7 @@ class AppServiceProvider extends ServiceProvider
             $schedule->command('marketplace:release-due-orders')->everyFifteenMinutes()->withoutOverlapping();
             $schedule->command('marketplace:cancel-overdue-orders')->everyFifteenMinutes()->withoutOverlapping();
             $schedule->command('marketplace:expire-checkouts')->everyFiveMinutes()->withoutOverlapping();
+            $schedule->command('marketplace:reconcile-payouts')->everyFiveMinutes()->withoutOverlapping();
         });
 
         Gate::define('admin', fn (User $user) => $user->isAdmin() && $user->isActive());

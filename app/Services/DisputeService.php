@@ -13,7 +13,7 @@ class DisputeService
 {
     public const REASONS = ['not_received', 'not_as_described', 'damaged', 'other'];
 
-    public function __construct(private OrderFulfilmentService $fulfilment, private RefundService $refunds)
+    public function __construct(private OrderFulfilmentService $fulfilment, private RefundService $refunds, private Notifier $notifier)
     {
     }
 
@@ -23,7 +23,7 @@ class DisputeService
      */
     public function open(Order $order, User $buyer, string $reason, string $details): Dispute
     {
-        return DB::transaction(function () use ($order, $buyer, $reason, $details) {
+        $dispute = DB::transaction(function () use ($order, $buyer, $reason, $details) {
             $order = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
 
             if ($order->status !== OrderStatus::Shipped) {
@@ -44,6 +44,10 @@ class DisputeService
 
             return $dispute;
         });
+
+        $this->notifier->disputeOpened($dispute); // the seller and the admins
+
+        return $dispute;
     }
 
     /** Admin decides: "release" pays the seller, "refund" returns the money to the buyer. */
@@ -81,6 +85,8 @@ class DisputeService
         if ($refund) {
             $this->refunds->dispatch($refund); // only after the transaction above has committed
         }
+
+        $this->notifier->disputeResolved($dispute); // the buyer and the seller
 
         return $dispute;
     }
