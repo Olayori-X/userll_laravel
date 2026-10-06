@@ -49,4 +49,26 @@ return [
         // Where Paystack sends the buyer after paying: FRONTEND_URL + this path + ?checkout=<reference>
         'callback_path' => '/checkout/complete',
     ],
+
+        // ---- Payouts ----
+    // PLACEHOLDER: the smallest withdrawal, in kobo (₦1,000). In .env write plain digits.
+    'min_payout_kobo' => (int) env('MARKETPLACE_MIN_PAYOUT_KOBO', 100_000),
+
+    // After a payout account is added or changed, payouts wait this many hours. 0 turns the hold off.
+    'payout_account_hold_hours' => (int) env('MARKETPLACE_PAYOUT_ACCOUNT_HOLD_HOURS', 24),
+
+    // The seller pays Paystack's transfer cost, taken out of the withdrawal. These are Paystack's
+    // published Nigeria rates (checked October 2026); update them here if Paystack changes its pricing.
+    'payout_fee' => [
+        'tiers' => [
+            ['up_to_kobo' => 500_000, 'fee_kobo' => 1_000],     // up to ₦5,000: ₦10
+            ['up_to_kobo' => 5_000_000, 'fee_kobo' => 2_500],   // up to ₦50,000: ₦25
+            ['up_to_kobo' => null, 'fee_kobo' => 5_000],        // above ₦50,000: ₦50
+        ],
+        'stamp_duty_kobo' => 5_000,            // ₦50 stamp duty...
+        'stamp_duty_from_kobo' => 1_000_000,   // ...on transfers of ₦10,000 or more
+    ],
+
+    // A payout that Paystack has not confirmed is checked directly after this many minutes.
+    'payout_reconcile_after_minutes' => 10,
 ];
