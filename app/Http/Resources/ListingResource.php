@@ -24,6 +24,7 @@ class ListingResource extends JsonResource
             'condition' => $this->condition->value,
             'stock' => $this->stock,
             'status' => $this->status->value,
+            'removal_reason' => $this->when($this->removal_reason !== null, $this->removal_reason),
             'location' => ['city' => $this->city, 'state' => $this->state],
             'category' => $this->whenLoaded('category', fn () => [
                 'id' => $this->category->id,

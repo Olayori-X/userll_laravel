@@ -29,7 +29,12 @@ class CartService
     /** Why this line cannot be bought right now, or null if it is fine. Used by the cart view and by checkout. */
     public static function issueFor(?Listing $listing, int $quantity): ?string
     {
-        if (! $listing || $listing->status !== ListingStatus::Active || $listing->stock < 1) {
+        if (
+            ! $listing
+            || $listing->status !== ListingStatus::Active
+            || $listing->stock < 1
+            || ! $listing->seller?->isActive() // a suspended seller's items cannot be bought
+        ) {
             return 'No longer available';
         }
 

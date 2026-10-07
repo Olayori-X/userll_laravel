@@ -282,6 +282,50 @@ class Notifier
         );
     }
 
+        // ------------------------------------------------------------------ accounts
+
+    public function accountSuspended(User $user): void
+    {
+        $this->send(
+            $user, 'account.suspended',
+            'Your account has been suspended',
+            'Your account has been suspended, so you are logged out and cannot sell or buy until it is reviewed. If you think this is a mistake, reply to this email or contact our support team.',
+            null, [], email: true,
+        );
+    }
+
+    public function accountReactivated(User $user): void
+    {
+        $this->send(
+            $user, 'account.reactivated',
+            'Your account is active again',
+            'Your account has been reactivated. You can log in and use it as before.',
+            '/login', [], email: true,
+        );
+    }
+
+    // ------------------------------------------------------------------ listing moderation
+
+    public function listingRemoved(Listing $listing): void
+    {
+        $this->send(
+            $this->user($listing->seller_id), 'listing.removed',
+            'A listing was removed',
+            "Your listing \"{$listing->title}\" was removed by our team: {$listing->removal_reason} If you think this is a mistake, contact support.",
+            '/seller/listings', ['listing_id' => $listing->id], email: true,
+        );
+    }
+
+    public function listingRestored(Listing $listing): void
+    {
+        $this->send(
+            $this->user($listing->seller_id), 'listing.restored',
+            'A listing was restored',
+            "Your listing \"{$listing->title}\" was restored as a draft. Check it and publish it when you are ready.",
+            '/seller/listings', ['listing_id' => $listing->id],
+        );
+    }
+
     // ------------------------------------------------------------------ internals
 
         private function send(?User $user, string $kind, string $title, string $body, ?string $link = null, array $meta = [], bool $email = false): void

@@ -262,7 +262,8 @@ class PaymentService
         return $listing !== null
             && ! $listing->trashed()
             && $listing->status === ListingStatus::Active
-            && $listing->stock >= $quantity;
+            && $listing->stock >= $quantity
+            && (bool) $listing->seller?->isActive(); // a seller suspended mid-checkout cannot receive the order
     }
 
     /** @return Collection<int, int> listing_id => total quantity across all orders in the checkout */

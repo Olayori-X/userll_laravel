@@ -31,6 +31,11 @@ use App\Http\Controllers\Api\V1\BuyerReviewController;
 use App\Http\Controllers\Api\V1\Seller\SellerReviewController;
 use App\Http\Controllers\Api\V1\SellerReviewController as PublicSellerReviewController;
 use App\Http\Controllers\Api\V1\ChatController;
+use App\Http\Controllers\Api\V1\Admin\AdminAuditLogController;
+use App\Http\Controllers\Api\V1\Admin\AdminUserController;
+use App\Http\Controllers\Api\V1\Admin\AdminListingController;
+use App\Http\Controllers\Api\V1\Admin\AdminOverviewController;
+use App\Http\Controllers\Api\V1\Admin\AdminOrderChatController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -154,7 +159,9 @@ Route::prefix('v1')->group(function () {
     });
 
     // ---------- Admin (login + verified email + admin role) ----------
-    Route::middleware(['auth:sanctum', 'verified', 'can:admin'])->prefix('admin')->group(function () {
+    Route::middleware(['auth:sanctum', 'verified', 'can:admin', 'audit'])->prefix('admin')->group(function () {
+        Route::get('overview', [AdminOverviewController::class, 'show']);
+
         Route::get('payments', [AdminPaymentController::class, 'index']);
         Route::post('payments/{payment}/refund', [AdminPaymentController::class, 'refund'])->whereNumber('payment');
 
@@ -164,9 +171,11 @@ Route::prefix('v1')->group(function () {
         Route::get('disputes', [AdminDisputeController::class, 'index']);
         Route::post('disputes/{dispute}/resolve', [AdminDisputeController::class, 'resolve'])->whereNumber('dispute');
 
+        Route::get('orders/{orderNumber}/chat', [AdminOrderChatController::class, 'show'])->middleware('audit:read');
+
         Route::get('kyc', [AdminKycController::class, 'index']);
         Route::get('kyc/{submission}', [AdminKycController::class, 'show'])->whereNumber('submission');
-        Route::get('kyc/{submission}/photo', [AdminKycController::class, 'photo'])->whereNumber('submission');
+        Route::get('kyc/{submission}/photo', [AdminKycController::class, 'photo'])->whereNumber('submission')->middleware('audit:read');
         Route::post('kyc/{submission}/approve', [AdminKycController::class, 'approve'])->whereNumber('submission');
         Route::post('kyc/{submission}/reject', [AdminKycController::class, 'reject'])->whereNumber('submission');
 
@@ -177,6 +186,19 @@ Route::prefix('v1')->group(function () {
         Route::get('reviews/{review}', [AdminReviewController::class, 'show'])->whereNumber('review');
         Route::post('reviews/{review}/hide', [AdminReviewController::class, 'hide'])->whereNumber('review');
         Route::post('reviews/{review}/unhide', [AdminReviewController::class, 'unhide'])->whereNumber('review');
+
+        Route::get('audit-logs', [AdminAuditLogController::class, 'index']);
+        Route::get('audit-logs/{log}', [AdminAuditLogController::class, 'show'])->whereNumber('log');
+
+        Route::get('users', [AdminUserController::class, 'index']);
+        Route::get('users/{user}', [AdminUserController::class, 'show'])->whereNumber('user');
+        Route::post('users/{user}/suspend', [AdminUserController::class, 'suspend'])->whereNumber('user');
+        Route::post('users/{user}/reactivate', [AdminUserController::class, 'reactivate'])->whereNumber('user');
+
+        Route::get('listings', [AdminListingController::class, 'index']);
+        Route::get('listings/{listing}', [AdminListingController::class, 'show'])->whereNumber('listing');
+        Route::post('listings/{listing}/remove', [AdminListingController::class, 'remove'])->whereNumber('listing');
+        Route::post('listings/{listing}/restore', [AdminListingController::class, 'restore'])->whereNumber('listing');
     });
 
     // Step 5+ routes go here (payouts, KYC, reviews, chat). Use:

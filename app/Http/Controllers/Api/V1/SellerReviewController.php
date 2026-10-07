@@ -14,6 +14,9 @@ class SellerReviewController extends Controller
     /** A store's visible reviews, newest first. Add ?rating=5 to see only reviews with that many stars. */
     public function index(Request $request, SellerProfile $sellerProfile): AnonymousResourceCollection
     {
+        // A suspended seller's store, and so its reviews, is not public.
+        abort_unless($sellerProfile->user?->isActive(), 404);
+        
         $data = $request->validate(['rating' => ['sometimes', 'integer', 'between:1,5']]);
 
         $reviews = Review::visible()

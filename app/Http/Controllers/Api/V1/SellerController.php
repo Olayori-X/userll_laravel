@@ -11,6 +11,9 @@ class SellerController extends Controller
     /** Public store page header. Their products come from GET /listings?seller={slug}. */
     public function show(SellerProfile $sellerProfile): SellerProfileResource
     {
+        // A suspended seller's store is not public.
+        abort_unless($sellerProfile->user?->isActive(), 404);
+
         return new SellerProfileResource($sellerProfile);
     }
 }

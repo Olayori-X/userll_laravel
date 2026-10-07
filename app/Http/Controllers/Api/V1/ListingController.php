@@ -69,8 +69,9 @@ class ListingController extends Controller
 
     public function show(Listing $listing): ListingResource
     {
-        // Drafts and admin-removed listings are not public. Sold-out ones stay visible (page can say "sold out").
-        abort_unless(in_array($listing->status, [ListingStatus::Active, ListingStatus::SoldOut], true), 404);
+        // Drafts, admin-removed listings and listings of suspended sellers are not public.
+        // Sold-out ones stay visible (the page can say "sold out").
+        abort_unless($listing->isPubliclyVisible(), 404);
 
         return new ListingResource($listing->load(['images', 'category', 'seller.sellerProfile']));
     }

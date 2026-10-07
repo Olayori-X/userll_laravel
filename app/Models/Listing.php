@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\ListingCondition;
 use App\Enums\ListingStatus;
+use App\Enums\UserStatus;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -39,10 +40,23 @@ class Listing extends Model
     public function category(): BelongsTo { return $this->belongsTo(Category::class); }
     public function images(): HasMany { return $this->hasMany(ListingImage::class)->orderBy('position'); }
 
-    /** Buyable right now: live and in stock. */
+    /** Buyable right now: live, in stock, and the seller's account is not suspended. */
     public function scopeActive(Builder $query): Builder
     {
-        return $query->where('status', ListingStatus::Active->value)->where('stock', '>', 0);
+        return $query->where('status', ListingStatus::Active->value)->where('stock', '>', 0)->fromActiveSellers();
+    }
+
+    /** Only listings whose seller is not suspended. */
+    public function scopeFromActiveSellers(Builder $query): Builder
+    {
+        return $query->whereHas('seller', fn (Builder $q) => $q->where('status', UserStatus::Active->value));
+    }
+
+    /** Fit to show on a public page: live (in stock or sold out) and the seller is not suspended. */
+    public function isPubliclyVisible(): bool
+    {
+        return in_array($this->status, [ListingStatus::Active, ListingStatus::SoldOut], true)
+            && (bool) $this->seller?->isActive();
     }
 
     /** Keep active/sold_out in step with stock. Drafts and removed listings are left alone. */
