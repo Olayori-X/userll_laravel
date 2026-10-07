@@ -21,7 +21,6 @@ class Order extends Model
             'status' => OrderStatus::class,
             'subtotal' => 'integer',
             'delivery_fee' => 'integer',
-            'delivery_fee' => 'integer',
             'commission' => 'integer',
             'total' => 'integer',
             'commission_rate_bps' => 'integer',

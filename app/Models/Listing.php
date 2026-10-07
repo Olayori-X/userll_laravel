@@ -18,7 +18,7 @@ class Listing extends Model
 
     // seller_id and status are set by the server, never from request input.
     protected $fillable = [
-        'category_id', 'title', 'slug', 'description', 'price', 'delivery_fee', 'delivery_fee',
+        'category_id', 'title', 'slug', 'description', 'price', 'delivery_fee',
         'condition', 'stock', 'city', 'state',
     ];
 

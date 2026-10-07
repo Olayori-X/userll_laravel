@@ -54,10 +54,14 @@ class PlatformOverviewService
                 'new_sellers' => SellerProfile::whereBetween('created_at', [$from, $to])->count(),
             ],
 
-            // The state of the platform right now, whatever dates were chosen.
+            // The state of the platform right now, whatever dates were chosen. Seller wallets and the
+            // platform's own wallet (our commission) are kept apart, so nothing of ours is counted as theirs.
             'money_now' => [
-                'escrow_held' => (int) Wallet::sum('pending_balance'),        // paid by buyers, not yet released to sellers
-                'owed_to_sellers' => (int) Wallet::sum('available_balance'),  // released, waiting to be withdrawn
+                'escrow_held' => (int) Wallet::sum('pending_balance'),                                   // everything buyers paid that is not yet released
+                'escrow_sellers_share' => (int) Wallet::where('type', 'seller')->sum('pending_balance'),  // ...of which sellers' money
+                'escrow_commission' => (int) Wallet::where('type', 'platform')->sum('pending_balance'),   // ...of which our commission
+                'owed_to_sellers' => (int) Wallet::where('type', 'seller')->sum('available_balance'),     // released, waiting to be withdrawn
+                'commission_earned_all_time' => (int) Wallet::where('type', 'platform')->sum('available_balance'),
                 'payouts_in_progress_count' => $this->openPayouts()->count(),
                 'payouts_in_progress_total' => (int) $this->openPayouts()->sum('amount'),
             ],
