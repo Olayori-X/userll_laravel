@@ -25,6 +25,9 @@ class AuditLog extends Model
 
     protected static function booted(): void
     {
+        // Stamp the time in PHP, with the app's clock and timezone, so it matches how the log is filtered by date.
+        static::creating(fn (self $log) => $log->created_at ??= now());
+
         static::updating(fn () => throw new LogicException('Audit log entries cannot be changed.'));
         static::deleting(fn () => throw new LogicException('Audit log entries cannot be deleted.'));
     }
