@@ -33,6 +33,23 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(5)->by(Str::lower((string) $request->input('email')).'|'.$request->ip());
         });
 
+        // One named limiter per action, so each has its own counter. Unnamed "throttle:30,1" middleware all
+        // share ONE counter per user, which makes unrelated actions (chat, payouts, KYC) block each other.
+        foreach ([
+            'email-resend' => 6,
+            'pay' => 10,
+            'verify-payment' => 20,
+            'payout-account' => 10,
+            'kyc-submit' => 5,
+            'payout-request' => 5,
+            'review-write' => 10,
+            'review-reply' => 20,
+            'chat-send' => 30,
+            'chat-start' => 20,
+        ] as $name => $perMinute) {
+            RateLimiter::for($name, fn (Request $request) => Limit::perMinute($perMinute)->by($request->user()?->id ?: $request->ip()));
+        }
+
         // The automatic jobs. They only run while the scheduler runs:
         // locally `php artisan schedule:work`, on a server a cron entry for `php artisan schedule:run` every minute.
         $this->callAfterResolving(Schedule::class, function (Schedule $schedule) {

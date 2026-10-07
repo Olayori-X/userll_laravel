@@ -14,6 +14,10 @@ use App\Models\Checkout;
 use App\Models\Payment;
 use App\Models\Review;
 use App\Notifications\UserNotification;
+use App\Http\Resources\ReviewResource;
+use App\Models\Conversation;
+use App\Models\Listing;
+use App\Models\Message;
 use App\Support\Money;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -262,6 +266,22 @@ class Notifier
         );
     }
 
+        // ------------------------------------------------------------------ chat
+
+    /** Only the first message of a conversation sends this. After that, unread counts tell people. */
+    public function conversationStarted(Conversation $conversation, Message $message): void
+    {
+        $sender = $this->user($message->sender_id);
+        $topic = $this->conversationTopic($conversation);
+
+        $this->send(
+            $this->user($message->recipient_id), 'chat.started',
+            'New message from '.ReviewResource::displayName($sender?->name),
+            ($topic ? "About {$topic}: " : '').'"'.Str::limit($message->body, 80).'"',
+            "/messages/{$conversation->id}", ['conversation_id' => $conversation->id],
+        );
+    }
+
     // ------------------------------------------------------------------ internals
 
         private function send(?User $user, string $kind, string $title, string $body, ?string $link = null, array $meta = [], bool $email = false): void
@@ -285,6 +305,18 @@ class Notifier
     private function user(int $id): ?User
     {
         return User::find($id);
+    }
+
+        /** What a conversation is about, in a few words: the listing's title or the order number. */
+    private function conversationTopic(Conversation $conversation): ?string
+    {
+        if ($conversation->order_id) {
+            $order = Order::find($conversation->order_id);
+
+            return $order ? "order {$order->order_number}" : null;
+        }
+
+        return $conversation->listing_id ? Listing::find($conversation->listing_id)?->title : null;
     }
 
     /** The buyer behind a payment: payment -> checkout -> buyer. Null if any link is missing. */

@@ -18,6 +18,8 @@ class SellerProfileResource extends JsonResource
             'city' => $this->city,
             'state' => $this->state,
             'is_verified' => $this->isVerified(),
+            'reviews_count' => (int) $this->reviews_count,
+            'rating_average' => (float) $this->rating_average, // 0 when there are no reviews yet
             'member_since' => $this->created_at?->toDateString(),
         ];
     }

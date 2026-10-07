@@ -26,6 +26,11 @@ use App\Http\Controllers\Api\V1\Seller\KycController;
 use App\Http\Controllers\Api\V1\Admin\AdminPayoutController;
 use App\Http\Controllers\Api\V1\Seller\SellerPayoutController;
 use App\Http\Controllers\Api\V1\NotificationController;
+use App\Http\Controllers\Api\V1\Admin\AdminReviewController;
+use App\Http\Controllers\Api\V1\BuyerReviewController;
+use App\Http\Controllers\Api\V1\Seller\SellerReviewController;
+use App\Http\Controllers\Api\V1\SellerReviewController as PublicSellerReviewController;
+use App\Http\Controllers\Api\V1\ChatController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -45,7 +50,7 @@ Route::prefix('v1')->group(function () {
         Route::middleware('auth:sanctum')->group(function () {
             Route::post('logout', [AuthController::class, 'logout']);
             Route::get('me', [AuthController::class, 'me']);
-            Route::post('email/resend', [EmailVerificationController::class, 'resend'])->middleware('throttle:6,1');
+            Route::post('email/resend', [EmailVerificationController::class, 'resend'])->middleware('throttle:email-resend');
         });
     });
 
@@ -54,6 +59,7 @@ Route::prefix('v1')->group(function () {
     Route::get('listings', [ListingController::class, 'index']);
     Route::get('listings/{listing:slug}', [ListingController::class, 'show']);
     Route::get('sellers/{sellerProfile:slug}', [SellerController::class, 'show']);
+    Route::get('sellers/{sellerProfile:slug}/reviews', [PublicSellerReviewController::class, 'index']);
 
     // ---------- Payment provider callbacks (no login: protected by the Paystack signature) ----------
     Route::post('webhooks/paystack', [PaystackWebhookController::class, 'handle']);
@@ -73,14 +79,16 @@ Route::prefix('v1')->group(function () {
 
         Route::post('checkout', [CheckoutController::class, 'store']);
         Route::get('checkouts/{reference}', [CheckoutController::class, 'show']);
-        Route::post('checkouts/{reference}/pay', [PaymentController::class, 'pay'])->middleware('throttle:10,1');
-        Route::post('checkouts/{reference}/verify', [PaymentController::class, 'verify'])->middleware('throttle:20,1');
+        Route::post('checkouts/{reference}/pay', [PaymentController::class, 'pay'])->middleware('throttle:pay');
+        Route::post('checkouts/{reference}/verify', [PaymentController::class, 'verify'])->middleware('throttle:verify-payment');
 
         Route::get('orders', [OrderController::class, 'index']);
         Route::get('orders/{orderNumber}', [OrderController::class, 'show']);
         Route::post('orders/{orderNumber}/confirm', [OrderActionController::class, 'confirm']);
         Route::post('orders/{orderNumber}/cancel', [OrderActionController::class, 'cancel']);
         Route::post('orders/{orderNumber}/dispute', [OrderActionController::class, 'dispute']);
+        Route::get('orders/{orderNumber}/review', [BuyerReviewController::class, 'show']);
+        Route::post('orders/{orderNumber}/review', [BuyerReviewController::class, 'store'])->middleware('throttle:review-write');
     });
 
     // ---------- Inbox (any signed-in user with a verified email) ----------
@@ -89,6 +97,19 @@ Route::prefix('v1')->group(function () {
         Route::get('unread-count', [NotificationController::class, 'unreadCount']);
         Route::post('read-all', [NotificationController::class, 'markAllRead']);
         Route::post('{notification}/read', [NotificationController::class, 'markRead']);
+    });
+
+    // ---------- Chat (any signed-in user with a verified email) ----------
+    Route::middleware(['auth:sanctum', 'verified'])->group(function () {
+        Route::get('conversations', [ChatController::class, 'index']);
+        Route::get('conversations/unread-count', [ChatController::class, 'unreadCount']);
+        Route::get('conversations/{conversation}', [ChatController::class, 'show'])->whereNumber('conversation');
+        Route::post('conversations/{conversation}/read', [ChatController::class, 'markRead'])->whereNumber('conversation');
+        Route::post('conversations/{conversation}/messages', [ChatController::class, 'send'])->whereNumber('conversation')->middleware('throttle:chat-send');
+
+        // Start (or reopen) a conversation about a listing, or about an order.
+        Route::post('listings/{listing:slug}/conversation', [ChatController::class, 'startForListing'])->middleware('throttle:chat-start');
+        Route::post('orders/{orderNumber}/conversation', [ChatController::class, 'startForOrder'])->middleware('throttle:chat-start');
     });
 
     // ---------- Seller area (verified email required) ----------
@@ -101,15 +122,18 @@ Route::prefix('v1')->group(function () {
 
             Route::get('banks', [PayoutAccountController::class, 'banks']);
             Route::get('payout-account', [PayoutAccountController::class, 'show']);
-            Route::put('payout-account', [PayoutAccountController::class, 'save'])->middleware('throttle:10,1');
+            Route::put('payout-account', [PayoutAccountController::class, 'save'])->middleware('throttle:payout-account');
 
             Route::get('kyc', [KycController::class, 'show']);
-            Route::post('kyc', [KycController::class, 'store'])->middleware('throttle:5,1');
+            Route::post('kyc', [KycController::class, 'store'])->middleware('throttle:kyc-submit');
 
             Route::get('wallet', [SellerPayoutController::class, 'summary']);
             Route::get('payouts/quote', [SellerPayoutController::class, 'quote']);
             Route::get('payouts', [SellerPayoutController::class, 'index']);
-            Route::post('payouts', [SellerPayoutController::class, 'store'])->middleware('throttle:5,1');
+            Route::post('payouts', [SellerPayoutController::class, 'store'])->middleware('throttle:payout-request');
+
+            Route::get('reviews', [SellerReviewController::class, 'index']);
+            Route::post('reviews/{review}/reply', [SellerReviewController::class, 'reply'])->whereNumber('review')->middleware('throttle:review-reply');
 
             Route::get('listings', [SellerListingController::class, 'index']);
             Route::post('listings', [SellerListingController::class, 'store']);
@@ -148,6 +172,11 @@ Route::prefix('v1')->group(function () {
 
         Route::get('payouts', [AdminPayoutController::class, 'index']);
         Route::get('payouts/{payout}', [AdminPayoutController::class, 'show'])->whereNumber('payout');
+
+        Route::get('reviews', [AdminReviewController::class, 'index']);
+        Route::get('reviews/{review}', [AdminReviewController::class, 'show'])->whereNumber('review');
+        Route::post('reviews/{review}/hide', [AdminReviewController::class, 'hide'])->whereNumber('review');
+        Route::post('reviews/{review}/unhide', [AdminReviewController::class, 'unhide'])->whereNumber('review');
     });
 
     // Step 5+ routes go here (payouts, KYC, reviews, chat). Use:
