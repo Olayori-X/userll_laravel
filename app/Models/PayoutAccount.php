@@ -15,7 +15,10 @@ class PayoutAccount extends Model
 
     protected function casts(): array
     {
-        return ['verified_at' => 'datetime'];
+        return [
+            'verified_at' => 'datetime',
+            'account_number' => 'encrypted',
+        ];
     }
 
     public function user(): BelongsTo { return $this->belongsTo(User::class); }

@@ -32,6 +32,14 @@ class KycService
     {
         $this->assertCanSubmit($seller->sellerProfile);
 
+        $account = PayoutAccount::where('user_id', $seller->id)->first();
+
+        if ($account && $this->compareNames($legalName, $account->account_name) === 'mismatch') {
+            throw ValidationException::withMessages([
+                'legal_name' => 'Your legal name does not match the name on your saved bank account. Use the name on your ID, or change your bank account to one in that name.',
+            ]);
+        }
+
         // Local private disk today, Cloudflare R2 once its variables are set. The disk is recorded
         // on the submission so the photo stays readable after a later switch.
         $disk = (string) config('marketplace.kyc_disk', 'local');
@@ -129,8 +137,17 @@ class KycService
             return 'no_bank_account';
         }
 
-        $legal = $this->nameTokens($submission->legal_name);
-        $bank = $this->nameTokens($account->account_name);
+        return $this->compareNames($submission->legal_name, $account->account_name);
+    }
+
+    /**
+     * Does a legal name fit a bank account name? One of: match, partial, mismatch.
+     * Every word of the shorter name appearing in the other (any order) is a match.
+     */
+    public function compareNames(string $legalName, string $accountName): string
+    {
+        $legal = $this->nameTokens($legalName);
+        $bank = $this->nameTokens($accountName);
 
         if ($legal === [] || $bank === []) {
             return 'mismatch';
@@ -139,10 +156,22 @@ class KycService
         $common = array_intersect($legal, $bank);
 
         if (count($common) === min(count($legal), count($bank))) {
-            return 'match'; // every word of the shorter name appears in the other, in any order
+            return 'match';
         }
 
         return $common !== [] ? 'partial' : 'mismatch';
+    }
+
+    /**
+     * The legal name the seller gave in their newest submission that is waiting or approved,
+     * or null if they have none. A rejected submission does not count.
+     */
+    public function currentLegalName(int $userId): ?string
+    {
+        return KycSubmission::where('user_id', $userId)
+            ->whereIn('status', [KycStatus::Pending->value, KycStatus::Verified->value])
+            ->latest('id')
+            ->value('legal_name');
     }
 
     /** The ID photo, streamed from whichever disk it was saved to. There is no public link to it. */

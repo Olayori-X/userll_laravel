@@ -43,10 +43,19 @@ class SendRefundToPaystack implements ShouldQueue
             'Refund from Userll ('.$refund->reason.')',
         );
 
-        $refund->update([
+        $newStatus = RefundStatus::fromPaystack($data['status'] ?? null);
+
+        // Always keep Paystack's id, whatever else happened while we waited for its answer.
+        Refund::whereKey($refund->id)->update([
             'paystack_refund_id' => isset($data['id']) ? (string) $data['id'] : null,
-            'status' => RefundStatus::fromPaystack($data['status'] ?? null),
         ]);
+
+        // Only move the status if nothing has moved it since we read the row. A refund.processed
+        // webhook can arrive while this request is still in flight, and a finished refund must
+        // never be pushed back to "processing" by an older answer.
+        Refund::whereKey($refund->id)
+            ->where('status', RefundStatus::Pending->value)
+            ->update(['status' => $newStatus->value]);
     }
 
     public function failed(Throwable $e): void

@@ -13,7 +13,7 @@ class PayoutAccountService
 {
     public const BANKS_CACHE_KEY = 'paystack.banks';
 
-    public function __construct(private PaystackClient $paystack)
+    public function __construct(private PaystackClient $paystack, private KycService $kyc)
     {
     }
 
@@ -58,6 +58,17 @@ class PayoutAccountService
         if (! $resolved) {
             throw ValidationException::withMessages([
                 'account_number' => 'We could not find that account number at that bank. Check it and try again.',
+            ]);
+        }
+
+        // The account must be in the seller's own name, as given in their identity check.
+        // A seller with no identity submission yet is not blocked here: the check runs the
+        // other way when they submit one.
+        $legalName = $this->kyc->currentLegalName($seller->id);
+
+        if ($legalName !== null && $this->kyc->compareNames($legalName, $resolved['account_name']) === 'mismatch') {
+            throw ValidationException::withMessages([
+                'account_number' => 'This account is not in your name. Use a bank account that matches the legal name on your identity documents.',
             ]);
         }
 

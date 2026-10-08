@@ -28,9 +28,13 @@ class AppServiceProvider extends ServiceProvider
                 .'&email='.urlencode($notifiable->getEmailForPasswordReset());
         });
 
-        // 5 attempts per minute per email+IP on register/login/forgot/reset.
+        // Two limits on register/login/forgot/reset. The first stops guessing at one account;
+        // the second stops one address from trying many different accounts (credential stuffing).
         RateLimiter::for('auth', function (Request $request) {
-            return Limit::perMinute(5)->by(Str::lower((string) $request->input('email')).'|'.$request->ip());
+            return [
+                Limit::perMinute(5)->by(Str::lower((string) $request->input('email')).'|'.$request->ip()),
+                Limit::perMinute(30)->by('auth-ip|'.$request->ip()),
+            ];
         });
 
         // One named limiter per action, so each has its own counter. Unnamed "throttle:30,1" middleware all

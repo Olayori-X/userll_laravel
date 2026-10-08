@@ -22,6 +22,12 @@ final class Money
             throw new InvalidArgumentException("Invalid amount: {$input}");
         }
 
+        // More than 10 digits is over ₦9,999,999,999: far beyond any real price, and with a k/m
+        // suffix it would overflow a PHP integer (that overflow caused the 500).
+        if (strlen($m[1]) > 10) {
+            throw new InvalidArgumentException("Invalid amount: {$input}");
+        }
+
         $kobo = ((int) $m[1]) * 100 + (int) str_pad($m[2] ?? '', 2, '0');
 
         return match ($m[3] ?? '') {
@@ -57,7 +63,8 @@ final class Money
         $naira = $kobo / 100;
 
         return match (true) {
-            $naira >= 1_000_000 => '₦'.number_format($naira / 1_000_000, 2).'M',
+            // The second condition catches amounts like ₦999,999.99, which would round up to "₦1,000.00k".
+            $naira >= 1_000_000 || round($naira / 1_000, 2) >= 1_000 => '₦'.number_format($naira / 1_000_000, 2).'M',
             $naira >= 1_000 => '₦'.number_format($naira / 1_000, 2).'k',
             default => '₦'.number_format($naira, 2),
         };

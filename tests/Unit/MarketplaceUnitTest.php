@@ -31,6 +31,32 @@ class MarketplaceUnitTest extends TestCase
         Money::fromNaira('12.345');
     }
 
+    public function test_money_rejects_amounts_too_large_to_store(): void
+    {
+        $this->assertNull(Money::tryFromNaira('99999999999999999999'));
+        $this->assertNull(Money::tryFromNaira('999999999999999k'));
+        $this->assertNull(Money::tryFromNaira('99999999999m'));
+
+        // The largest accepted input still fits in a 64-bit integer.
+        $this->assertSame(999999999900000000, Money::fromNaira('9999999999m'));
+    }
+
+    public function test_money_huge_amount_throws_the_expected_exception(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        Money::fromNaira('99999999999999999999');
+    }
+
+    public function test_short_format_does_not_round_up_into_the_next_unit_wrongly(): void
+    {
+        $this->assertSame('₦999.99', Money::short(99999));
+        $this->assertSame('₦999.50k', Money::short(99950000));
+        $this->assertSame('₦1.00M', Money::short(99999999));   // ₦999,999.99 used to show as ₦1,000.00k
+        $this->assertSame('₦1.00M', Money::short(99999900));
+        $this->assertSame('₦1.00M', Money::short(100000000));
+        $this->assertSame('₦1.50M', Money::short(150000000));
+    }
+
     public function test_order_status_transitions(): void
     {
         $this->assertTrue(OrderStatus::Paid->canTransitionTo(OrderStatus::Shipped));

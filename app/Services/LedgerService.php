@@ -10,6 +10,7 @@ use App\Models\Order;
 use App\Models\Payout;
 use App\Models\Wallet;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Database\UniqueConstraintViolationException;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -28,7 +29,15 @@ class LedgerService
 
     public function platformWallet(): Wallet
     {
-        return Wallet::firstOrCreate(['type' => 'platform']); // user_id stays null
+        try {
+            return Wallet::firstOrCreate(
+                ['singleton_key' => 'platform'],
+                ['type' => 'platform'],
+            );
+        } catch (UniqueConstraintViolationException) {
+            // Two requests raced to create it: the other one won, so read theirs.
+            return Wallet::where('singleton_key', 'platform')->firstOrFail();
+        }
     }
 
     /**
